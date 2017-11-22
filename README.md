@@ -1,6 +1,9 @@
 # Capsule-Network
 Try out CapsNet
 
+# Reference
+* Based on https://github.com/naturomics/CapsNet-Tensorflow
+
 # Losses
 ![](assets/margin-loss.png)
 ![](assets/reconstruction-loss.png)
