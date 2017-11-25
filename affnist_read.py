@@ -36,50 +36,41 @@ def atoi(text):
 
 
 def natural_keys(text):
-    return [ atoi(c) for c in re.split('(\d+)', text) ]
+    return [atoi(c) for c in re.split('(\d+)', text)]
 
 
-class AffNISTLoader(object):
-    def __init__(self, base_dir, how_many=5, one_hot=True):
-        if how_many <= 0 or how_many > 32:
+class AffNistTrainLoader(object):
+    def __init__(self, training_dir, n_sets=5, one_hot=True):
+        if n_sets <= 0 or n_sets > 32:
             raise ValueError('There are 1 ~ 32 set of training sets, each contains 50,000 training examples.')
 
+        # set affNIST data attribute infomations
+        im_size = 40
         single_train_size = 50000
-        self.n_sets = how_many
-        self.one_hot = one_hot
-        self.n_train_examples = self.n_sets * single_train_size
-        self.n_val_examples = self.n_sets * single_val_size
-        self.n_test_examples = self.n_sets * single_test_size
-
-        # set relative pathes
-        training_dir = os.path.join(base_dir, 'training_batches')
-        validation_dir = os.path.join(base_dir, 'validation_batches')
-        test_dir = os.path.join(base_dir, 'test_batches')
 
         # get matlab *.mat files
         training_batches = glob.glob(os.path.join(training_dir, '*.mat'))
-        validation_batches = glob.glob(os.path.join(validation_dir, '*.mat'))
-        test_batches = glob.glob(os.path.join(test_dir, '*.mat'))
+        if len(training_batches) == 0:
+            raise ValueError('Cannot find any *.mat files')
 
         # sort for convinience
         training_batches.sort(key=natural_keys)
-        validation_batches.sort(key=natural_keys)
-        test_batches.sort(key=natural_keys)
 
-        # merge needed training examples
-        self.train_x = np.empty((self.n_train_examples, 40*40), dtype=np.float32)
-        self.train_y = np.empty((self.n_train_examples, 1), dtype=np.float32)
+        # set class attributes
+        self.n_sets = n_sets
+        self.one_hot = one_hot
+        self.n_samples = self.n_sets * single_train_size
+
+        # merge training examples
+        self.train_x = np.empty((self.n_samples, im_size * im_size), dtype=np.float32)
+        self.train_y = np.empty((self.n_samples, 1), dtype=np.float32)
         if self.one_hot:
-            self.train_y = np.empty((self.n_train_examples, 10), dtype=np.float32)
+            self.train_y = np.empty((self.n_samples, 10), dtype=np.float32)
 
         # iterate all examples and merge
         for ii in range(self.n_sets):
             train_mat_fn = training_batches[ii]
-            val_mat_fn = validation_batches[ii]
-            test_mat_fn = test_batches[ii]
             train_dataset = loadmat(train_mat_fn)
-            val_dataset = loadmat(val_mat_fn)
-            test_dataset = loadmat(test_mat_fn)
 
             # load image and label
             x = train_dataset['affNISTdata']['image'].transpose().astype(np.float32)
@@ -102,49 +93,86 @@ class AffNISTLoader(object):
         return
 
     def get_next_batches(self, batch_size):
-        if self.batch_index + batch_size > self.n_train_examples:
+        if self.batch_index + batch_size > self.n_samples:
             self.batch_index = 0
 
-        x = self.merged_x[self.batch_index:self.batch_index + batch_size]
-        y = self.merged_y[self.batch_index:self.batch_index + batch_size]
+        x = self.train_x[self.batch_index:self.batch_index + batch_size]
+        y = self.train_y[self.batch_index:self.batch_index + batch_size]
+
+        self.batch_index += batch_size
+        return x, y
+
+
+class AffNistLoader(object):
+    def __init__(self, mat_file, one_hot=True):
+        # set class attributes
+        self.one_hot = one_hot
+
+        # load mat file
+        dataset = loadmat(mat_file)
+
+        # load image and label
+        self.x = dataset['affNISTdata']['image'].transpose().astype(np.float32)
+        self.y = dataset['affNISTdata']['label_int'].transpose().astype(np.float32)
+        if self.one_hot:
+            self.y = dataset['affNISTdata']['label_one_of_n'].transpose()
+
+        # normalize image to 0 ~ 1
+        self.x = self.x / 255.0
+
+        # find number of samples
+        self.n_samples = self.y.shape[0]
+
+        # reset batch index
+        self.batch_index = 0
+
+        return
+
+    def get_next_batches(self, batch_size):
+        if self.batch_index + batch_size > self.n_samples:
+            self.batch_index = 0
+
+        x = self.x[self.batch_index:self.batch_index + batch_size]
+        y = self.y[self.batch_index:self.batch_index + batch_size]
 
         self.batch_index += batch_size
         return x, y
 
 
 def main():
-    affNIST_base_dir = 'D:\\db\\affineMnist\\transformed'
-    aff_mnist_loader = AffNISTLoader(affNIST_base_dir, how_many=1, one_hot=True)
+    trainig_dir = './affNIST/training_batches'
+    aff_mnist_train_loader = AffNistTrainLoader(trainig_dir, n_sets=3, one_hot=True)
     batch_size = 128
+    epochs = 2
 
-    for ii in range(aff_mnist_loader.n_train_examples // batch_size):
-        # get training data
-        batch_x, batch_y = aff_mnist_loader.get_next_batches(batch_size)
+    for e in range(epochs):
+        for ii in range(aff_mnist_train_loader.n_samples // batch_size):
+            # get training data
+            batch_x, batch_y = aff_mnist_train_loader.get_next_batches(batch_size)
+
+            # reshape input
+            batch_x = np.reshape(batch_x, (-1, 40, 40, 1))
+            print('')
+
+    val_mat = './affNIST/validation.mat'
+    aff_mnist_val_loader = AffNistLoader(val_mat, one_hot=True)
+    for ii in range(aff_mnist_val_loader.n_samples // batch_size):
+        # get validation data
+        val_x, val_y = aff_mnist_val_loader.get_next_batches(batch_size)
 
         # reshape input
-        batch_x = np.reshape(batch_x, (-1, 40, 40, 1))
+        val_x = np.reshape(val_x, (-1, 40, 40, 1))
+        print('')
 
+    test_mat = './affNIST/test.mat'
+    aff_mnist_test_loader = AffNistLoader(test_mat, one_hot=True)
+    for ii in range(aff_mnist_test_loader.n_samples // batch_size):
+        # get validation data
+        test_x, test_y = aff_mnist_test_loader.get_next_batches(batch_size)
 
-    # training_dir = os.path.join(affNIST_base_dir, 'training_batches')
-    # validation_dir = os.path.join(affNIST_base_dir, 'validation_batches')
-    # test_dir = os.path.join(affNIST_base_dir, 'test_batches')
-    #
-    # training_batches = glob.glob(os.path.join(training_dir, '*.mat'))
-    # validation_batches = glob.glob(os.path.join(validation_dir, '*.mat'))
-    # test_batches = glob.glob(os.path.join(test_dir, '*.mat'))
-    #
-    # training_batches.sort(key=natural_keys)
-    # validation_batches.sort(key=natural_keys)
-    # test_batches.sort(key=natural_keys)
-    #
-    # for mat_fn in training_batches:
-    #     dataset = loadmat(mat_fn)
-    #
-    #     ans_set = dataset['affNISTdata']['label_one_of_n'].transpose()
-    #     train_set = dataset['affNISTdata']['image'].transpose()
-    #
-    #     print('{:s}: number of examples - {:d}'.format(mat_fn, train_set.shape[0]))
-
+        # reshape input
+        test_x = np.reshape(test_x, (-1, 40, 40, 1))
+        print('')
     return
 
 
