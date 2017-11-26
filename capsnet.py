@@ -378,7 +378,7 @@ def save_reconstruction_results(net, mnist_set, fn):
 
 def main():
     epochs = 50
-    batch_size = 512
+    batch_size = 128
     net = CapsNet()
 
     train(net, epochs, batch_size)
