@@ -277,7 +277,7 @@ def train(net, epochs, batch_size, print_every=50):
                     total_loss = net.total_loss.eval(fd)
 
                     # compute current accuracy
-                    accuracy = validate_accruacy(sess, mnist, net)
+                    accuracy = compute_accuracy(sess, net, mnist.validation)
                     print("Epoch {}/{}...".format(e + 1, epochs),
                           "Margin Loss: {:.4f}...".format(margin_loss),
                           "Reconstruction Loss: {:.4f}...".format(recon_loss),
@@ -293,7 +293,13 @@ def train(net, epochs, batch_size, print_every=50):
 
             # get reconstructed results
             recon_result_fn = 'recon_{:03d}.png'.format(e+1)
-            validate_reconstruction(mnist, net, recon_result_fn)
+            save_reconstruction_results(net, mnist.validation, recon_result_fn)
+
+        # test final accuracy and reconstructions
+        final_test_accuracy = compute_accuracy(sess, net, mnist.test)
+        print('Final test accuracy: {:.4f}'.format(final_test_accuracy))
+        final_recon_fn = 'final_recon.png'
+        save_reconstruction_results(net, mnist.test, final_recon_fn)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -312,67 +318,67 @@ def train(net, epochs, batch_size, print_every=50):
     return
 
 
-def validate_accruacy(sess, mnist, net):
+def compute_accuracy(sess, net, mnist_set):
     # accuracy computation
     correct_prediction = tf.equal(tf.argmax(net.softmax_iv, 1), tf.argmax(net.inputs_y, 1))
     correct_prediction_count = tf.reduce_sum(tf.cast(correct_prediction, tf.float32))
 
     # get test data
-    test_x = mnist.test.images
-    test_y = mnist.test.labels
+    x_ = mnist_set.images
+    y_ = mnist_set.labels
 
-    # reshape input
-    test_x = np.reshape(test_x, (-1, 28, 28, 1))
+    # reshape input x
+    x_ = np.reshape(x_, (-1, net.im_size, net.im_size, 1))
 
-    n_test_case = test_x.shape[0]
-    batch_size = 100
-    n_test = n_test_case // batch_size
+    n_examples = x_.shape[0]
+    mini_batch_size = 100
+    n_test = n_examples // mini_batch_size
 
     cnt_sum = 0.0
     for i in range(n_test):
-        start = i * batch_size
-        end = start + batch_size
-        batch_x = test_x[start:end]
-        batch_y = test_y[start:end]
-        batch_cnt = sess.run(correct_prediction_count, feed_dict={net.inputs_x: batch_x, net.inputs_y: batch_y})
-        cnt_sum += batch_cnt
+        start = i * mini_batch_size
+        end = start + mini_batch_size
+        mini_batch_x = x_[start:end]
+        mini_batch_y = y_[start:end]
+        mini_batch_cnt = sess.run(correct_prediction_count,
+                                  feed_dict={net.inputs_x: mini_batch_x, net.inputs_y: mini_batch_y})
+        cnt_sum += mini_batch_cnt
 
-    accuracy = cnt_sum / float(n_test_case)
+    accuracy = cnt_sum / float(n_examples)
     return accuracy
 
 
-def validate_reconstruction(mnist, net, fn):
+def save_reconstruction_results(net, mnist_set, fn):
     from scipy.misc import toimage
 
     # get test data
-    test_x = mnist.test.images
-    test_y = mnist.test.labels
+    x_ = mnist_set.images
+    y_ = mnist_set.labels
 
     # reshape input
-    test_x = np.reshape(test_x, (-1, 28, 28, 1))
+    x_ = np.reshape(x_, (-1, net.im_size, net.im_size, 1))
 
-    n_test_case_block = 5
-    n_test_case = n_test_case_block * n_test_case_block
+    n_block = 5
+    n_case = n_block * n_block
 
-    picked_index = np.random.randint(0, test_x.shape[0], n_test_case)
-    selected_x = test_x[picked_index]
-    selected_y = test_y[picked_index]
+    picked_index = np.random.randint(0, x_.shape[0], n_case)
+    selected_x = x_[picked_index]
+    selected_y = y_[picked_index]
 
     recon = net.reconstructed.eval(feed_dict={net.inputs_x: selected_x, net.inputs_y: selected_y})
-    recon = np.reshape(recon, (-1, 28, 28, 1))
+    recon = np.reshape(recon, (-1, net.im_size, net.im_size, 1))
 
-    real_image = utils.form_image(selected_x, n_test_case_block)
-    recon_image = utils.form_image(recon, n_test_case_block)
+    real_image = utils.form_image(selected_x, n_block)
+    recon_image = utils.form_image(recon, n_block)
 
     merged = np.concatenate((real_image, recon_image), axis=1)
     toimage(merged, mode='L').save(fn)
-
     return
 
 
 def main():
     epochs = 50
-    batch_size = 128
+    batch_size = 512
     net = CapsNet()
 
     train(net, epochs, batch_size)
