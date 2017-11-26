@@ -11,6 +11,7 @@ tf.multiply(): element wise x * y
 tf.layers.xxx()'s default kernel_initializer: glorot_uniform_initializer ==> Xavier uniform initializer
 '''
 
+
 class CapsNet(object):
     def __init__(self):
         # start building graph

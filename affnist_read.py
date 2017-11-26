@@ -39,10 +39,10 @@ def natural_keys(text):
     return [atoi(c) for c in re.split('(\d+)', text)]
 
 
-class AffNistTrainLoader(object):
+class AffNistBatchLoader(object):
     def __init__(self, training_dir, n_sets=5, one_hot=True):
         if n_sets <= 0 or n_sets > 32:
-            raise ValueError('There are 1 ~ 32 set of training sets, each contains 50,000 training examples.')
+            raise ValueError('There are 1 ~ 32 sets, each contains 50,000 examples.')
 
         # set affNIST data attribute infomations
         im_size = 40
@@ -139,42 +139,48 @@ class AffNistLoader(object):
         return x, y
 
 
-def main():
+if __name__ == '__main__':
+    from scipy.misc import toimage
+    from utils import form_image
+
+    n_test_case_block = 5
+    n_test_case = n_test_case_block * n_test_case_block
+
+    # check train loader
     trainig_dir = './affNIST/training_batches'
-    aff_mnist_train_loader = AffNistTrainLoader(trainig_dir, n_sets=3, one_hot=True)
-    batch_size = 128
-    epochs = 2
+    aff_mnist_train_loader = AffNistBatchLoader(trainig_dir, n_sets=3, one_hot=True)
 
-    for e in range(epochs):
-        for ii in range(aff_mnist_train_loader.n_samples // batch_size):
-            # get training data
-            batch_x, batch_y = aff_mnist_train_loader.get_next_batches(batch_size)
+    # get training data
+    train_batch_x, train_batch_y = aff_mnist_train_loader.get_next_batches(n_test_case)
 
-            # reshape input
-            batch_x = np.reshape(batch_x, (-1, 40, 40, 1))
-            print('')
+    # reshape input
+    train_batch_x = np.reshape(train_batch_x, (-1, 40, 40, 1))
 
+    train_image = form_image(train_batch_x, n_test_case_block)
+    toimage(train_image, mode='L').save('train_image.png')
+
+    # check validation loader
     val_mat = './affNIST/validation.mat'
     aff_mnist_val_loader = AffNistLoader(val_mat, one_hot=True)
-    for ii in range(aff_mnist_val_loader.n_samples // batch_size):
-        # get validation data
-        val_x, val_y = aff_mnist_val_loader.get_next_batches(batch_size)
 
-        # reshape input
-        val_x = np.reshape(val_x, (-1, 40, 40, 1))
-        print('')
+    # get validation data
+    val_batch_x, val_batch_y = aff_mnist_val_loader.get_next_batches(n_test_case)
 
+    # reshape input
+    val_batch_x = np.reshape(val_batch_x, (-1, 40, 40, 1))
+
+    val_image = form_image(val_batch_x, n_test_case_block)
+    toimage(val_image, mode='L').save('val_image.png')
+
+    # check test loader
     test_mat = './affNIST/test.mat'
     aff_mnist_test_loader = AffNistLoader(test_mat, one_hot=True)
-    for ii in range(aff_mnist_test_loader.n_samples // batch_size):
-        # get validation data
-        test_x, test_y = aff_mnist_test_loader.get_next_batches(batch_size)
 
-        # reshape input
-        test_x = np.reshape(test_x, (-1, 40, 40, 1))
-        print('')
-    return
+    # get test data
+    test_batch_x, test_batch_y = aff_mnist_test_loader.get_next_batches(n_test_case)
 
+    # reshape input
+    test_batch_x = np.reshape(test_batch_x, (-1, 40, 40, 1))
 
-if __name__ == '__main__':
-    main()
+    test_image = form_image(test_batch_x, n_test_case_block)
+    toimage(test_image, mode='L').save('test_image.png')

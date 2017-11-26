@@ -14,7 +14,7 @@ def save_loss(loss, label, fn):
     return
 
 
-def form_image(multiple_images, val_block_size):
+def form_image(multiple_images, block_size):
     def preprocess(img):
         img = (img * 255.0).astype(np.uint8)
         return img
@@ -30,7 +30,7 @@ def form_image(multiple_images, val_block_size):
             single_row = np.concatenate((single_row, preprocesed[b, :, :, :]), axis=1)
 
         # concat image row to final_image
-        if (b+1) % val_block_size == 0:
+        if (b+1) % block_size == 0:
             if final_image.size == 0:
                 final_image = single_row
             else:
