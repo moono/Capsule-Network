@@ -59,13 +59,13 @@ class AffNistBatchLoader(object):
         # set class attributes
         self.n_sets = n_sets
         self.one_hot = one_hot
-        self.n_samples = self.n_sets * single_train_size
+        self.num_examples = self.n_sets * single_train_size
 
         # merge training examples
-        self.train_x = np.empty((self.n_samples, im_size * im_size), dtype=np.float32)
-        self.train_y = np.empty((self.n_samples, 1), dtype=np.float32)
+        self.images = np.empty((self.num_examples, im_size * im_size), dtype=np.float32)
+        self.labels = np.empty((self.num_examples, 1), dtype=np.float32)
         if self.one_hot:
-            self.train_y = np.empty((self.n_samples, 10), dtype=np.float32)
+            self.labels = np.empty((self.num_examples, 10), dtype=np.float32)
 
         # iterate all examples and merge
         for ii in range(self.n_sets):
@@ -84,20 +84,20 @@ class AffNistBatchLoader(object):
             # merge
             start = ii * single_train_size
             end = (ii + 1) * single_train_size
-            self.train_x[start:end] = x
-            self.train_y[start:end] = y
+            self.images[start:end] = x
+            self.labels[start:end] = y
 
         # reset batch index
         self.batch_index = 0
 
         return
 
-    def get_next_batches(self, batch_size):
-        if self.batch_index + batch_size > self.n_samples:
+    def next_batch(self, batch_size):
+        if self.batch_index + batch_size > self.num_examples:
             self.batch_index = 0
 
-        x = self.train_x[self.batch_index:self.batch_index + batch_size]
-        y = self.train_y[self.batch_index:self.batch_index + batch_size]
+        x = self.images[self.batch_index:self.batch_index + batch_size]
+        y = self.labels[self.batch_index:self.batch_index + batch_size]
 
         self.batch_index += batch_size
         return x, y
@@ -112,28 +112,28 @@ class AffNistLoader(object):
         dataset = loadmat(mat_file)
 
         # load image and label
-        self.x = dataset['affNISTdata']['image'].transpose().astype(np.float32)
-        self.y = dataset['affNISTdata']['label_int'].transpose().astype(np.float32)
+        self.images = dataset['affNISTdata']['image'].transpose().astype(np.float32)
+        self.labels = dataset['affNISTdata']['label_int'].transpose().astype(np.float32)
         if self.one_hot:
-            self.y = dataset['affNISTdata']['label_one_of_n'].transpose()
+            self.labels = dataset['affNISTdata']['label_one_of_n'].transpose()
 
         # normalize image to 0 ~ 1
-        self.x = self.x / 255.0
+        self.images = self.images / 255.0
 
         # find number of samples
-        self.n_samples = self.y.shape[0]
+        self.num_examples = self.labels.shape[0]
 
         # reset batch index
         self.batch_index = 0
 
         return
 
-    def get_next_batches(self, batch_size):
-        if self.batch_index + batch_size > self.n_samples:
+    def next_batch(self, batch_size):
+        if self.batch_index + batch_size > self.num_examples:
             self.batch_index = 0
 
-        x = self.x[self.batch_index:self.batch_index + batch_size]
-        y = self.y[self.batch_index:self.batch_index + batch_size]
+        x = self.images[self.batch_index:self.batch_index + batch_size]
+        y = self.labels[self.batch_index:self.batch_index + batch_size]
 
         self.batch_index += batch_size
         return x, y
@@ -151,7 +151,7 @@ if __name__ == '__main__':
     aff_mnist_train_loader = AffNistBatchLoader(trainig_dir, n_sets=3, one_hot=True)
 
     # get training data
-    train_batch_x, train_batch_y = aff_mnist_train_loader.get_next_batches(n_test_case)
+    train_batch_x, train_batch_y = aff_mnist_train_loader.next_batch(n_test_case)
 
     # reshape input
     train_batch_x = np.reshape(train_batch_x, (-1, 40, 40, 1))
@@ -164,7 +164,7 @@ if __name__ == '__main__':
     aff_mnist_val_loader = AffNistLoader(val_mat, one_hot=True)
 
     # get validation data
-    val_batch_x, val_batch_y = aff_mnist_val_loader.get_next_batches(n_test_case)
+    val_batch_x, val_batch_y = aff_mnist_val_loader.next_batch(n_test_case)
 
     # reshape input
     val_batch_x = np.reshape(val_batch_x, (-1, 40, 40, 1))
@@ -177,7 +177,7 @@ if __name__ == '__main__':
     aff_mnist_test_loader = AffNistLoader(test_mat, one_hot=True)
 
     # get test data
-    test_batch_x, test_batch_y = aff_mnist_test_loader.get_next_batches(n_test_case)
+    test_batch_x, test_batch_y = aff_mnist_test_loader.next_batch(n_test_case)
 
     # reshape input
     test_batch_x = np.reshape(test_batch_x, (-1, 40, 40, 1))
