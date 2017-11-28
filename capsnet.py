@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.examples.tutorials.mnist import input_data
 import affnist_read
+import cv2
 
 import utils
 
@@ -238,7 +239,17 @@ class CapsNet(object):
         return fc3
 
 
-def train(net, epochs, batch_size, train_loader, val_loader, test_loader, print_every=50):
+def train(net, epochs, batch_size, print_every=50):
+    # mnist datset loader
+    mnist = input_data.read_data_sets('mnist', one_hot=True)
+
+    # affNist dataset loader
+    # aff_train_loader = affnist_read.AffNistBatchLoader('./affNIST/training_batches', n_sets=3, one_hot=True)
+    aff_val_loader = affnist_read.AffNistLoader('./affNIST/validation.mat', one_hot=True)
+    aff_test_loader = affnist_read.AffNistLoader('./affNIST/test.mat', one_hot=True)
+
+    saver = tf.train.Saver()
+
     steps = 0
     margin_losses = []
     reconstruction_losses = []
@@ -253,9 +264,9 @@ def train(net, epochs, batch_size, train_loader, val_loader, test_loader, print_
 
         # start training
         for e in range(epochs):
-            for ii in range(train_loader.num_examples // batch_size):
+            for ii in range(mnist.train.num_examples // batch_size):
                 # get training data
-                batch_x, batch_y = train_loader.next_batch(batch_size)
+                batch_x, batch_y = mnist.train.next_batch(batch_size)
 
                 # reshape input
                 batch_x = np.reshape(batch_x, (-1, net.im_size, net.im_size, 1))
@@ -275,12 +286,13 @@ def train(net, epochs, batch_size, train_loader, val_loader, test_loader, print_
                     total_loss = net.total_loss.eval(fd)
 
                     # compute current accuracy
-                    accuracy = compute_accuracy(sess, net, val_loader)
+                    accuracy = compute_accuracy(sess, net, mnist.validation)
+                    accuracy_aff = compute_accuracy_affnist(sess, net, aff_val_loader)
                     print("Epoch {}/{}...".format(e + 1, epochs),
                           "Margin Loss: {:.4f}...".format(margin_loss),
                           "Reconstruction Loss: {:.4f}...".format(recon_loss),
-                          "Total Loss: {:.4f}...".format(total_loss),
-                          "Epoch {}/{}... Accuracy: {:.05f}".format(e + 1, epochs, accuracy))
+                          "Total Loss: {:.4f}...".format(total_loss))
+                    print("MNIST Accuracy: {:.05f}, affNIST Accuracy: {:.05f}".format(accuracy, accuracy_aff))
 
                     # save losses & accuracies
                     margin_losses.append(margin_loss)
@@ -291,13 +303,18 @@ def train(net, epochs, batch_size, train_loader, val_loader, test_loader, print_
 
             # get reconstructed results
             recon_result_fn = 'recon_{:03d}.png'.format(e+1)
-            save_reconstruction_results(net, val_loader, recon_result_fn)
+            save_reconstruction_results(net, mnist.validation, recon_result_fn)
 
         # test final accuracy and reconstructions
-        final_test_accuracy = compute_accuracy(sess, net, test_loader, use_all_examples=True)
-        print('Final test accuracy: {:.4f}'.format(final_test_accuracy))
+        final_test_accuracy = compute_accuracy(sess, net, mnist.test)
+        aff_final_test_accuracy = compute_accuracy_affnist(sess, net, aff_test_loader)
+        print('MNIST final test accuracy: {:.4f}'.format(final_test_accuracy),
+              ', affNIST final test accuracy: {:.4f}'.format(aff_final_test_accuracy))
         final_recon_fn = 'final_recon.png'
-        save_reconstruction_results(net, test_loader, final_recon_fn)
+        save_reconstruction_results(net, mnist.test, final_recon_fn)
+
+        # save model
+        saver.save(sess, save_path='./checkpoints/capsnet-mnist.ckpt')
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -316,20 +333,14 @@ def train(net, epochs, batch_size, train_loader, val_loader, test_loader, print_
     return
 
 
-def compute_accuracy(sess, net, data_loader, use_all_examples=False):
+def compute_accuracy(sess, net, data_loader):
     # accuracy computation
     correct_prediction = tf.equal(tf.argmax(net.softmax_iv, 1), tf.argmax(net.inputs_y, 1))
     correct_prediction_count = tf.reduce_sum(tf.cast(correct_prediction, tf.float32))
 
-    # just use 5000 examples
-    n_example_to_compute = 5000
-    if use_all_examples:
-        n_example_to_compute = data_loader.num_examples
-    picked_index = np.random.randint(0, data_loader.num_examples, n_example_to_compute)
-
     # get test data
-    x_ = data_loader.images[picked_index]
-    y_ = data_loader.labels[picked_index]
+    x_ = data_loader.images
+    y_ = data_loader.labels
 
     # reshape input x
     x_ = np.reshape(x_, (-1, net.im_size, net.im_size, 1))
@@ -346,6 +357,49 @@ def compute_accuracy(sess, net, data_loader, use_all_examples=False):
         mini_batch_y = y_[start:end]
         mini_batch_cnt = sess.run(correct_prediction_count,
                                   feed_dict={net.inputs_x: mini_batch_x, net.inputs_y: mini_batch_y})
+        cnt_sum += mini_batch_cnt
+
+    accuracy = cnt_sum / float(n_examples)
+    return accuracy
+
+
+def compute_accuracy_affnist(sess, net, data_loader, use_all_examples=False):
+    # accuracy computation
+    correct_prediction = tf.equal(tf.argmax(net.softmax_iv, 1), tf.argmax(net.inputs_y, 1))
+    correct_prediction_count = tf.reduce_sum(tf.cast(correct_prediction, tf.float32))
+
+    # just use 5000 examples
+    n_example_to_compute = 5000
+    if use_all_examples:
+        n_example_to_compute = data_loader.num_examples
+    picked_index = np.random.randint(0, data_loader.num_examples, n_example_to_compute)
+
+    # get test data
+    x_ = data_loader.images[picked_index]
+    y_ = data_loader.labels[picked_index]
+
+    # reshape input x
+    im_size_from = 40
+    im_size_to = 28
+    x_ = np.reshape(x_, (-1, im_size_from, im_size_from, 1))
+
+    # resize input x
+    aff_inputs_x = tf.placeholder(tf.float32, [None, im_size_from, im_size_from, 1])
+    resize_op = tf.image.resize_images(aff_inputs_x, (im_size_to, im_size_to))
+
+    n_examples = x_.shape[0]
+    mini_batch_size = 100
+    n_test = n_examples // mini_batch_size
+
+    cnt_sum = 0.0
+    for i in range(n_test):
+        start = i * mini_batch_size
+        end = start + mini_batch_size
+        mini_batch_x = x_[start:end]
+        mini_batch_y = y_[start:end]
+        resized_x = sess.run(resize_op, feed_dict={aff_inputs_x: mini_batch_x})
+        mini_batch_cnt = sess.run(correct_prediction_count,
+                                  feed_dict={net.inputs_x: resized_x, net.inputs_y: mini_batch_y})
         cnt_sum += mini_batch_cnt
 
     accuracy = cnt_sum / float(n_examples)
@@ -382,30 +436,11 @@ def main():
     epochs = 50
     batch_size = 128
 
-    # # mnist datset loader
-    # mnist_dir = 'mnist'
-    # mnist = input_data.read_data_sets(mnist_dir, one_hot=True)
-    # train_loader = mnist.train
-    # val_loader = mnist.validation
-    # test_loader = mnist.test
-    # im_size = 28
-
-    # affNist dataset loader
-    trainig_dir = './affNIST/training_batches'
-    train_loader = affnist_read.AffNistBatchLoader(trainig_dir, n_sets=3, one_hot=True)
-
-    val_mat = './affNIST/validation.mat'
-    val_loader = affnist_read.AffNistLoader(val_mat, one_hot=True)
-
-    test_mat = './affNIST/test.mat'
-    test_loader = affnist_read.AffNistLoader(test_mat, one_hot=True)
-    im_size = 40
-
     # create network
-    net = CapsNet(im_size)
+    net = CapsNet(28)
 
     # start training
-    train(net, epochs, batch_size, train_loader, val_loader, test_loader)
+    train(net, epochs, batch_size)
     return
 
 
